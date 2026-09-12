@@ -460,20 +460,26 @@ async function extractPdfText(blob){
 // ==================================================================================
 const PLAN_SECTIONS = [
   {id:'intro',title:'معرفی و پشتوانه اجرایی',hint:'پیشینه شتابدهنده، پشتوانه اجرایی و هدفی که به‌دلیل آن ایجاد شده.'},
-  {id:'domain',title:'حوزه تخصصی',hint:'تمرکز فنی شتابدهنده و دلیل ورود به این حوزه.'},
+  {id:'domain',title:'حوزه فعالیت شتابدهنده',hint:'حوزه فعالیت را انتخاب کنید و در صورت نیاز کمی توضیح بدهید.',noAI:true},
   {id:'invest',title:'ساختار سرمایه‌گذاری',hint:'سرمایه‌گذاران روی خود شتابدهنده و سرمایه‌گذارانی که با استارتاپ‌ها همکاری می‌کنند.'},
   {id:'space',title:'فضا و امکانات',hint:'متراژ، امکانات، آدرس و نزدیکی به دانشگاه‌ها یا مراکز صنعتی.'},
   {id:'model',title:'مدل شتابدهی',hint:'فرآیند انتخاب استارتاپ، مراحل پیش‌شتابدهی/شتابدهی، آورده مالی، KPIهای ورود و خروج.'},
   {id:'exit',title:'برنامه خروج از سهام',hint:'استراتژی خروج شتابدهنده از سهام استارتاپ‌ها.'},
   {id:'team',title:'تیم اجرایی و مربیان',hint:'افراد کلیدی، سمت‌ها و منتورهای فنی/کسب‌وکار.'},
-  {id:'track',title:'سابقه فعالیت',hint:'چرخه‌های اتمام‌یافته، تعداد تیم‌های پذیرفته‌شده و خروجی‌های موفق.'},
-  {id:'finance',title:'برنامه مالی سه‌ساله',hint:'پیش‌بینی هزینه، درآمد و محل تأمین مالی برای سه سال آینده.'},
+  {id:'track',title:'سابقه فعالیت و برنامه سه‌ساله',hint:'چرخه‌های اتمام‌یافته و برنامه پیش‌رو برای سه سال آینده.'},
+  {id:'finance',title:'برنامه مالی سه‌ساله',hint:'پیش‌بینی هزینه، محل تأمین و درآمد برای سه سال آینده.'},
 ];
+const DOMAIN_OPTIONS = ['فناوری اطلاعات و نرم‌افزار','هوش مصنوعی و داده','زیست‌فناوری و دارو','الکترونیک و مخابرات','مواد پیشرفته و نانو','مکانیک و ماشین‌آلات','انرژی و محیط زیست','کشاورزی و صنایع غذایی','سایر'];
+const MENTOR_TYPE_LABELS = {technical:'فنی', business:'کسب‌وکار'};
+const EDUCATION_LABELS = {diploma:'دیپلم', associate:'کاردانی', bachelor:'کارشناسی', master:'کارشناسی ارشد', phd:'دکتری'};
+const INVESTOR_TYPE_LABELS = {real:'حقیقی', legal:'حقوقی'};
+const COST_PRESETS = ['اجاره فضا','حقوق پرسنل','منتورها و مربیان','مشاوران','برگزاری رویداد','سیدمانی','هزینه‌های جاری','اینترنت و زیرساخت'];
+const FUNDING_PRESETS = ['آورده نقدی موسسین','تسهیلات بانکی','کمک‌های بلاعوض/دولتی','سرمایه‌گذار خطرپذیر','درآمد عملیاتی'];
+const REVENUE_PRESETS = ['فروش سهام','سود سهام استارتاپ‌ها','برگزاری رویداد','ارائه خدمات مشاوره به صنایع'];
 
 // فیلدهای عددی/ساختاریافته کوتاه — قبل از هر بخش پر می‌شن، هم به دستیار AI کمک می‌کنن دقیق‌تر بنویسه
 // هم برای کارشناس قابل مقایسه‌ان (به‌جای این‌که فقط گم بشن وسط یه متن آزاد)
 const STRUCTURED_FIELDS = {
-  invest: [ {key:'mainInvestor', label:'نام سرمایه‌گذار اصلی', type:'text'} ],
   model: [
     {key:'seedAmount', label:'مبلغ سیدمانی (میلیون تومان)', type:'number'},
     {key:'equityPercent', label:'درصد سهام دریافتی', type:'number'},
@@ -482,18 +488,91 @@ const STRUCTURED_FIELDS = {
   ],
   team: [
     {key:'execTeamSize', label:'تعداد نفرات تیم اجرایی', type:'number'},
-    {key:'mentorsCount', label:'تعداد منتورها', type:'number'},
   ],
   track: [
     {key:'previousCycles', label:'تعداد چرخه‌های قبلی', type:'number'},
-    {key:'successfulExits', label:'تعداد خروج‌های موفق', type:'number'},
+    {key:'successfulExits', label:'تعداد خروج‌های موفق (تاکنون)', type:'number'},
   ],
-  finance: [ {key:'yearlyBudget', label:'بودجه سالانه (میلیون تومان)', type:'number'} ],
 };
 function structuredSummaryText(sectionId){
   const fields = STRUCTURED_FIELDS[sectionId]; if(!fields) return '';
   const vals = aState.structured[sectionId] || {};
   return fields.filter(f=>vals[f.key]!==undefined && vals[f.key]!=='').map(f=>`${f.label}: ${vals[f.key]}`).join('، ');
+}
+// جداول سه‌ستونه (سال ۱ تا ۳) با ردیف‌های قابل افزودن/حذف — برای هزینه/تامین‌مالی/درآمد و برنامه ورود-خروج
+function emptyRow(label){ return {label, y1:'', y2:'', y3:''}; }
+function tableTotal(rows, key){ return rows.reduce((s,r)=>s + (Number(r[key])||0), 0); }
+function renderYearTable(sectionId, tableKey, rows, presets){
+  const rowTotal = r => (Number(r.y1)||0)+(Number(r.y2)||0)+(Number(r.y3)||0);
+  const tid = `${sectionId}-${tableKey}`;
+  return `<div style="overflow-x:auto"><table id="ytable-${tid}" style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:8px">
+    <tr style="border-bottom:2px solid var(--border)"><th style="text-align:right;padding:6px">عنوان</th><th style="padding:6px">سال اول</th><th style="padding:6px">سال دوم</th><th style="padding:6px">سال سوم</th><th style="padding:6px">جمع</th><th></th></tr>
+    ${rows.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:4px"><input type="text" value="${esc(r.label)}" oninput="updateYearRow('${sectionId}','${tableKey}',${i},'label',this.value)" style="min-width:120px"></td>
+      <td style="padding:4px"><input type="number" value="${esc(r.y1)}" oninput="updateYearRow('${sectionId}','${tableKey}',${i},'y1',this.value)" style="width:80px"></td>
+      <td style="padding:4px"><input type="number" value="${esc(r.y2)}" oninput="updateYearRow('${sectionId}','${tableKey}',${i},'y2',this.value)" style="width:80px"></td>
+      <td style="padding:4px"><input type="number" value="${esc(r.y3)}" oninput="updateYearRow('${sectionId}','${tableKey}',${i},'y3',this.value)" style="width:80px"></td>
+      <td style="padding:4px;text-align:center;font-weight:700" id="rowtotal-${tid}-${i}">${rowTotal(r).toLocaleString('fa-IR')}</td>
+      <td style="padding:4px"><button class="mini-btn" onclick="removeYearRow('${sectionId}','${tableKey}',${i})">🗑</button></td>
+    </tr>`).join('')}
+    <tr style="font-weight:800;background:var(--bg)"><td style="padding:6px">جمع کل</td>
+      <td style="padding:6px;text-align:center" id="coltotal-${tid}-y1">${tableTotal(rows,'y1').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center" id="coltotal-${tid}-y2">${tableTotal(rows,'y2').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center" id="coltotal-${tid}-y3">${tableTotal(rows,'y3').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center" id="grandtotal-${tid}">${rows.reduce((s,r)=>s+rowTotal(r),0).toLocaleString('fa-IR')}</td><td></td></tr>
+    </table></div>
+    <div class="ai-suggest-actions" style="margin-bottom:10px">
+      ${presets.filter(p=>!rows.some(r=>r.label===p)).map(p=>`<button class="mini-btn" onclick="addYearRow('${sectionId}','${tableKey}','${p}')">+ ${esc(p)}</button>`).join('')}
+      <button class="mini-btn" onclick="addYearRow('${sectionId}','${tableKey}','')">+ ردیف دلخواه</button>
+    </div>`;
+}
+function getYearTable(sectionId, tableKey){
+  if(!aState.structured[sectionId]) aState.structured[sectionId] = {};
+  if(!aState.structured[sectionId][tableKey]) aState.structured[sectionId][tableKey] = [];
+  return aState.structured[sectionId][tableKey];
+}
+function addYearRow(sectionId, tableKey, label){ getYearTable(sectionId,tableKey).push(emptyRow(label)); renderStepBody(); }
+function removeYearRow(sectionId, tableKey, idx){ getYearTable(sectionId,tableKey).splice(idx,1); renderStepBody(); }
+function updateYearRow(sectionId, tableKey, idx, field, val){
+  // عمداً renderStepBody صدا زده نمی‌شه، وگرنه اینپوت وسط تایپ فوکوسش رو از دست می‌ده؛
+  // فقط state رو آپدیت می‌کنیم و جمع‌ها رو مستقیم تو DOM بازنویسی می‌کنیم.
+  const rows = getYearTable(sectionId,tableKey);
+  rows[idx][field] = val;
+  if(field==='label') return;
+  const tid = `${sectionId}-${tableKey}`;
+  const rowTotal = r => (Number(r.y1)||0)+(Number(r.y2)||0)+(Number(r.y3)||0);
+  const rt = document.getElementById(`rowtotal-${tid}-${idx}`); if(rt) rt.textContent = rowTotal(rows[idx]).toLocaleString('fa-IR');
+  ['y1','y2','y3'].forEach(k=>{ const el = document.getElementById(`coltotal-${tid}-${k}`); if(el) el.textContent = tableTotal(rows,k).toLocaleString('fa-IR'); });
+  const gt = document.getElementById(`grandtotal-${tid}`); if(gt) gt.textContent = rows.reduce((s,r)=>s+rowTotal(r),0).toLocaleString('fa-IR');
+}
+
+// جدول «برنامه سه‌ساله ورود و خروج» — دقیقاً مطابق پاورقی فایل راهنما: ۳ ردیف ثابت + مجموع
+const ROADMAP_ROWS = ['پیش‌شتابدهی','شتابدهی','خروج موفق از چرخه'];
+function getRoadmapTable(){
+  if(!aState.structured.track) aState.structured.track = {};
+  if(!aState.structured.track.roadmap || aState.structured.track.roadmap.length!==3){
+    aState.structured.track.roadmap = ROADMAP_ROWS.map(emptyRow);
+  }
+  return aState.structured.track.roadmap;
+}
+function renderRoadmapTable(){
+  const rows = getRoadmapTable();
+  const rowTotal = r => (Number(r.y1)||0)+(Number(r.y2)||0)+(Number(r.y3)||0);
+  return `<div style="overflow-x:auto"><table id="ytable-track-roadmap" style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:8px">
+    <tr style="border-bottom:2px solid var(--border)"><th style="text-align:right;padding:6px">مرحله</th><th style="padding:6px">سال اول</th><th style="padding:6px">سال دوم</th><th style="padding:6px">سال سوم</th><th style="padding:6px">جمع</th></tr>
+    ${rows.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px;font-weight:600">${esc(r.label)}</td>
+      <td style="padding:4px"><input type="number" value="${esc(r.y1)}" oninput="updateYearRow('track','roadmap',${i},'y1',this.value)" style="width:80px"></td>
+      <td style="padding:4px"><input type="number" value="${esc(r.y2)}" oninput="updateYearRow('track','roadmap',${i},'y2',this.value)" style="width:80px"></td>
+      <td style="padding:4px"><input type="number" value="${esc(r.y3)}" oninput="updateYearRow('track','roadmap',${i},'y3',this.value)" style="width:80px"></td>
+      <td style="padding:4px;text-align:center;font-weight:700" id="rowtotal-track-roadmap-${i}">${rowTotal(r).toLocaleString('fa-IR')}</td>
+    </tr>`).join('')}
+    <tr style="font-weight:800;background:var(--bg)"><td style="padding:6px">جمع کل</td>
+      <td style="padding:6px;text-align:center" id="coltotal-track-roadmap-y1">${tableTotal(rows,'y1').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center" id="coltotal-track-roadmap-y2">${tableTotal(rows,'y2').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center" id="coltotal-track-roadmap-y3">${tableTotal(rows,'y3').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center" id="grandtotal-track-roadmap">${rows.reduce((s,r)=>s+rowTotal(r),0).toLocaleString('fa-IR')}</td></tr>
+    </table></div>`;
 }
 
 // هر دسته: آیتم‌ها با یک راهنمای کوتاه که هم به کاربر هم به AI (موقع بررسی مدرک) کمک می‌کنه
@@ -516,10 +595,8 @@ const DOC_CATEGORIES = {
     {n:'شتابدهی', c:'مستندات مرحله شتابدهی تیم‌های قبلی.'},
     {n:'خروج موفق', c:'مستندات مربوط به خروج‌های موفق قبلی.'},
   ]},
-  '04': {name:'مربیان، منتورها و کارکنان', group:'docs3', phase:'later', items:[
-    {n:'رزومه تیم اجرایی', c:'رزومه هر عضو تیم اجرایی شامل سابقه کاری مرتبط.'},
-    {n:'رزومه مشاوران', c:'رزومه مشاوران با تخصص مرتبط.'},
-    {n:'رزومه منتورها', c:'رزومه منتورها با سابقه اجرایی/تخصصی مرتبط.'},
+  '04': {name:'تیم اجرایی و بیمه', group:'docs3', phase:'later', items:[
+    {n:'رزومه تیم اجرایی', c:'رزومه هر عضو تیم اجرایی شامل سابقه کاری مرتبط. (رزومه منتورها و مشاوران را در بخش «تیم اجرایی و مربیان» طرح وارد کنید، نه اینجا.)'},
     {n:'لیست بیمه ستاد اجرایی شتابدهنده', c:'لیست بیمه تامین اجتماعی اعضای ستاد اجرایی که اشتغال رسمی آن‌ها را نشان دهد.'},
   ]},
   '05': {name:'فضای استقرار', group:'docs4', phase:'later', items:[
@@ -552,9 +629,146 @@ const STEPS = [
 function catsForGroup(g){ return Object.entries(DOC_CATEGORIES).filter(([id,c])=>c.group===g).map(([id,c])=>({id,...c})); }
 function catsForPhase(p){ return Object.entries(DOC_CATEGORIES).filter(([id,c])=>c.phase===p).map(([id,c])=>({id,...c})); }
 
-let aState = { step:0, applicationId:null, basic:{name:'',founded:'',domain:'فناوری اطلاعات و نرم‌افزار'}, sections:{}, structured:{}, docs:{}, lastLevel:0 };
+let aState = { step:0, applicationId:null, basic:{name:'',founded:'',domain:'فناوری اطلاعات و نرم‌افزار'}, sections:{}, structured:{}, docs:{}, mentors:[], investors:[], lastLevel:0 };
 Object.keys(DOC_CATEGORIES).forEach(id => aState.docs[id] = DOC_CATEGORIES[id].items.map(()=>null));
 const pendingFiles = {}; // نگه‌داری موقت File واقعی برای بررسی فوری AI بدون نیاز به دانلود مجدد
+
+// ---------------------------- منتورها (فنی/کسب‌وکار) ----------------------------
+function addMentorDraft(){ aState.mentors.push({localId:'new-'+Date.now(), isNew:true, mentor_type:'technical', full_name:'', national_id:'', years_active:'', education:'bachelor', achievements:'', resumeFile:null, photoFile:null}); renderStepBody(); }
+function mentorField(localId, key, val){ const m = aState.mentors.find(x=>x.localId===localId); if(m) m[key]=val; }
+async function uploadMentorFile(localId, kind, inputEl){
+  const m = aState.mentors.find(x=>x.localId===localId); if(!m) return;
+  const file = inputEl.files[0]; if(!file) return;
+  const allowed = kind==='photo' ? ['jpg','jpeg','png'] : ALLOWED_EXT;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if(!allowed.includes(ext)){ toast('فرمت مجاز نیست'); return; }
+  if(file.size > MAX_FILE_SIZE){ toast('حجم بیشتر از ۱۰ مگابایت است'); return; }
+  if(!aState.applicationId){ const ok = await saveBasicInfo(); if(!ok) return; }
+  const path = `${aState.applicationId}/mentors/${localId}/${kind}-${Date.now()}-${file.name}`;
+  const {error} = await supa.storage.from('documents').upload(path, file);
+  if(error){ toast('خطای آپلود: '+error.message); return; }
+  m[kind+'File'] = {name:file.name, size:file.size, path};
+  renderStepBody(); toast('فایل بارگذاری شد');
+}
+async function saveMentor(localId){
+  const m = aState.mentors.find(x=>x.localId===localId); if(!m) return;
+  if(!m.full_name || m.full_name.trim().length<2){ toast('نام منتور را کامل وارد کنید'); return; }
+  if(!m.resumeFile){ toast('رزومه الزامی است'); return; }
+  if(!aState.applicationId){ const ok = await saveBasicInfo(); if(!ok) return; }
+  const payload = {
+    application_id: aState.applicationId, mentor_type:m.mentor_type, full_name:m.full_name.trim(),
+    national_id: m.national_id||null, years_active: m.years_active?Number(m.years_active):null,
+    education: m.education||null, achievements: m.achievements||null,
+    resume_path: m.resumeFile.path, photo_path: m.photoFile?m.photoFile.path:null,
+  };
+  if(m.isNew){
+    const {data, error} = await supa.from('mentors').insert(payload).select().single();
+    if(error){ toast('خطا: '+error.message); return; }
+    m.id = data.id; m.isNew = false;
+  } else {
+    const {error} = await supa.from('mentors').update(payload).eq('id', m.id);
+    if(error){ toast('خطا: '+error.message); return; }
+  }
+  toast('منتور ذخیره شد'); renderStepBody();
+}
+async function removeMentor(localId){
+  const m = aState.mentors.find(x=>x.localId===localId); if(!m) return;
+  if(!m.isNew && m.id){ await supa.from('mentors').delete().eq('id', m.id); }
+  const paths = [m.resumeFile?.path, m.photoFile?.path].filter(Boolean);
+  if(paths.length) await supa.storage.from('documents').remove(paths);
+  aState.mentors = aState.mentors.filter(x=>x.localId!==localId);
+  renderStepBody();
+}
+
+// ---------------------------- سرمایه‌گذاران (حقیقی/حقوقی) ----------------------------
+function addInvestorDraft(){ aState.investors.push({localId:'new-'+Date.now(), isNew:true, investor_type:'legal', name:'', amount:'', equity_percent:'', details:'', docFile:null}); renderStepBody(); }
+function investorField(localId, key, val){ const inv = aState.investors.find(x=>x.localId===localId); if(inv) inv[key]=val; }
+async function uploadInvestorFile(localId, inputEl){
+  const inv = aState.investors.find(x=>x.localId===localId); if(!inv) return;
+  const file = inputEl.files[0]; if(!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if(!ALLOWED_EXT.includes(ext)){ toast('فرمت مجاز نیست'); return; }
+  if(file.size > MAX_FILE_SIZE){ toast('حجم بیشتر از ۱۰ مگابایت است'); return; }
+  if(!aState.applicationId){ const ok = await saveBasicInfo(); if(!ok) return; }
+  const path = `${aState.applicationId}/investors/${localId}/doc-${Date.now()}-${file.name}`;
+  const {error} = await supa.storage.from('documents').upload(path, file);
+  if(error){ toast('خطای آپلود: '+error.message); return; }
+  inv.docFile = {name:file.name, size:file.size, path};
+  renderStepBody(); toast('فایل بارگذاری شد');
+}
+async function saveInvestor(localId){
+  const inv = aState.investors.find(x=>x.localId===localId); if(!inv) return;
+  if(!inv.name || inv.name.trim().length<2){ toast('نام سرمایه‌گذار را کامل وارد کنید'); return; }
+  if(!aState.applicationId){ const ok = await saveBasicInfo(); if(!ok) return; }
+  const payload = {
+    application_id: aState.applicationId, investor_type:inv.investor_type, name:inv.name.trim(),
+    amount: inv.amount?Number(inv.amount):null, equity_percent: inv.equity_percent?Number(inv.equity_percent):null,
+    details: inv.details||null, document_path: inv.docFile?inv.docFile.path:null,
+  };
+  if(inv.isNew){
+    const {data, error} = await supa.from('investors').insert(payload).select().single();
+    if(error){ toast('خطا: '+error.message); return; }
+    inv.id = data.id; inv.isNew = false;
+  } else {
+    const {error} = await supa.from('investors').update(payload).eq('id', inv.id);
+    if(error){ toast('خطا: '+error.message); return; }
+  }
+  toast('سرمایه‌گذار ذخیره شد'); renderStepBody();
+}
+async function removeInvestor(localId){
+  const inv = aState.investors.find(x=>x.localId===localId); if(!inv) return;
+  if(!inv.isNew && inv.id){ await supa.from('investors').delete().eq('id', inv.id); }
+  if(inv.docFile?.path) await supa.storage.from('documents').remove([inv.docFile.path]);
+  aState.investors = aState.investors.filter(x=>x.localId!==localId);
+  renderStepBody();
+}
+function renderMentorsBlock(){
+  return `<div style="margin-top:10px"><h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">منتورها (فنی و کسب‌وکار)</h3>
+    ${aState.mentors.map(m=>`<div class="doc-cat">
+      <div class="doc-cat-head"><span class="doc-cat-title">${esc(m.full_name||'منتور جدید')} ${m.id?`<span class="doc-cat-badge complete">ذخیره‌شده</span>`:`<span class="doc-cat-badge empty">ذخیره‌نشده</span>`}</span><button class="mini-btn" onclick="removeMentor('${m.localId}')">🗑 حذف</button></div>
+      <div class="field" style="display:flex;flex-wrap:wrap;gap:10px">
+        <div style="flex:1;min-width:130px"><label>نوع منتور</label><select onchange="mentorField('${m.localId}','mentor_type',this.value)"><option value="technical" ${m.mentor_type==='technical'?'selected':''}>فنی</option><option value="business" ${m.mentor_type==='business'?'selected':''}>کسب‌وکار</option></select></div>
+        <div style="flex:2;min-width:160px"><label>نام و نام خانوادگی</label><input type="text" value="${esc(m.full_name)}" oninput="mentorField('${m.localId}','full_name',this.value)"></div>
+      </div>
+      <div class="field" style="display:flex;flex-wrap:wrap;gap:10px">
+        <div style="flex:1;min-width:130px"><label>کد ملی</label><input type="text" maxlength="10" value="${esc(m.national_id)}" oninput="mentorField('${m.localId}','national_id',this.value)"></div>
+        <div style="flex:1;min-width:130px"><label>سال‌های فعالیت</label><input type="number" value="${esc(m.years_active)}" oninput="mentorField('${m.localId}','years_active',this.value)"></div>
+        <div style="flex:1;min-width:150px"><label>میزان تحصیلات</label><select onchange="mentorField('${m.localId}','education',this.value)">${Object.entries(EDUCATION_LABELS).map(([k,l])=>`<option value="${k}" ${m.education===k?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label>توضیحات دستاوردها</label><textarea style="min-height:60px" oninput="mentorField('${m.localId}','achievements',this.value)">${esc(m.achievements)}</textarea></div>
+      <div class="doc-item-top" style="margin-bottom:8px">
+        <input type="file" id="mres-${m.localId}" style="display:none" onchange="uploadMentorFile('${m.localId}','resume',this)">
+        ${m.resumeFile ? `<div class="uploaded-chip">📎 رزومه: ${esc(m.resumeFile.name)}</div>` : `<button class="upload-btn" onclick="document.getElementById('mres-${m.localId}').click()">بارگذاری رزومه (الزامی)</button>`}
+        <input type="file" id="mpho-${m.localId}" style="display:none" accept=".jpg,.jpeg,.png" onchange="uploadMentorFile('${m.localId}','photo',this)">
+        ${m.photoFile ? `<div class="uploaded-chip">🖼️ عکس: ${esc(m.photoFile.name)}</div>` : `<button class="upload-btn" onclick="document.getElementById('mpho-${m.localId}').click()">بارگذاری عکس (اختیاری)</button>`}
+      </div>
+      <button class="btn btn-primary" onclick="saveMentor('${m.localId}')">💾 ذخیره منتور</button>
+    </div>`).join('')}
+    <button class="mini-btn primary" onclick="addMentorDraft()">+ افزودن منتور</button>
+  </div>`;
+}
+function renderInvestorsBlock(){
+  return `<div style="margin-top:10px"><h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">سرمایه‌گذاران (حقیقی/حقوقی)</h3>
+    ${aState.investors.map(inv=>`<div class="doc-cat">
+      <div class="doc-cat-head"><span class="doc-cat-title">${esc(inv.name||'سرمایه‌گذار جدید')} ${inv.id?`<span class="doc-cat-badge complete">ذخیره‌شده</span>`:`<span class="doc-cat-badge empty">ذخیره‌نشده</span>`}</span><button class="mini-btn" onclick="removeInvestor('${inv.localId}')">🗑 حذف</button></div>
+      <div class="field" style="display:flex;flex-wrap:wrap;gap:10px">
+        <div style="flex:1;min-width:120px"><label>نوع</label><select onchange="investorField('${inv.localId}','investor_type',this.value)"><option value="real" ${inv.investor_type==='real'?'selected':''}>حقیقی</option><option value="legal" ${inv.investor_type==='legal'?'selected':''}>حقوقی</option></select></div>
+        <div style="flex:2;min-width:160px"><label>نام (شخص یا شرکت)</label><input type="text" value="${esc(inv.name)}" oninput="investorField('${inv.localId}','name',this.value)"></div>
+      </div>
+      <div class="field" style="display:flex;flex-wrap:wrap;gap:10px">
+        <div style="flex:1;min-width:130px"><label>مبلغ سرمایه‌گذاری (میلیون تومان)</label><input type="number" value="${esc(inv.amount)}" oninput="investorField('${inv.localId}','amount',this.value)"></div>
+        <div style="flex:1;min-width:130px"><label>درصد سهام</label><input type="number" value="${esc(inv.equity_percent)}" oninput="investorField('${inv.localId}','equity_percent',this.value)"></div>
+      </div>
+      <div class="field"><label>توضیحات</label><textarea style="min-height:60px" oninput="investorField('${inv.localId}','details',this.value)">${esc(inv.details)}</textarea></div>
+      <div class="doc-item-top" style="margin-bottom:8px">
+        <input type="file" id="idoc-${inv.localId}" style="display:none" onchange="uploadInvestorFile('${inv.localId}',this)">
+        ${inv.docFile ? `<div class="uploaded-chip">📎 مدرک: ${esc(inv.docFile.name)}</div>` : `<button class="upload-btn" onclick="document.getElementById('idoc-${inv.localId}').click()">بارگذاری مدرک (اختیاری)</button>`}
+      </div>
+      <button class="btn btn-primary" onclick="saveInvestor('${inv.localId}')">💾 ذخیره سرمایه‌گذار</button>
+    </div>`).join('')}
+    <button class="mini-btn primary" onclick="addInvestorDraft()">+ افزودن سرمایه‌گذار</button>
+  </div>`;
+}
 
 async function initApplicantView(){
   const root = document.getElementById('appRoot');
@@ -581,6 +795,10 @@ async function initApplicantView(){
   (sections||[]).forEach(s => { aState.sections[s.section_key] = s.content; aState.structured[s.section_key] = s.structured_data || {}; });
   const {data:docs} = await supa.from('documents').select('*').eq('application_id', app.id);
   (docs||[]).forEach(d => { if(aState.docs[d.category_id]) aState.docs[d.category_id][d.item_index] = {name:d.file_name, size:d.file_size, path:d.file_path, aiReview:d.ai_review}; });
+  const {data:mentors} = await supa.from('mentors').select('*').eq('application_id', app.id);
+  aState.mentors = (mentors||[]).map(m=>({localId:m.id, id:m.id, isNew:false, mentor_type:m.mentor_type, full_name:m.full_name, national_id:m.national_id||'', years_active:m.years_active||'', education:m.education||'bachelor', achievements:m.achievements||'', resumeFile:m.resume_path?{name:m.resume_path.split('/').pop(),path:m.resume_path}:null, photoFile:m.photo_path?{name:m.photo_path.split('/').pop(),path:m.photo_path}:null}));
+  const {data:investors} = await supa.from('investors').select('*').eq('application_id', app.id);
+  aState.investors = (investors||[]).map(inv=>({localId:inv.id, id:inv.id, isNew:false, investor_type:inv.investor_type, name:inv.name, amount:inv.amount||'', equity_percent:inv.equity_percent||'', details:inv.details||'', docFile:inv.document_path?{name:inv.document_path.split('/').pop(),path:inv.document_path}:null}));
 
   if(app.status==='draft' || app.status==='needs_revision'){
     if(app.status==='needs_revision'){ document.querySelector('#wizardWrap').insertAdjacentHTML('afterbegin', `<div class="stage-hint" style="border-color:var(--bad);background:rgba(185,28,28,.06);color:var(--bad)">کارشناس درخواست اصلاح داده: ${esc(app.specialist_note||'')}</div>`); }
@@ -721,16 +939,33 @@ function renderStepBody(){
       </div>` +
       PLAN_SECTIONS.map(s=>{
         const sf = STRUCTURED_FIELDS[s.id];
+        let extra = '';
+        if(s.id==='domain'){
+          const dv = aState.structured.domain||{};
+          extra = `<div class="field" style="display:flex;flex-wrap:wrap;gap:10px">
+            <div style="flex:1;min-width:160px"><label>حوزه فعالیت</label><select onchange="onStructuredInput('domain','category',this.value); renderStepBody();">${DOMAIN_OPTIONS.map(d=>`<option ${dv.category===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
+            ${dv.category==='سایر' ? `<div style="flex:1;min-width:160px"><label>عنوان حوزه (سایر)</label><input type="text" value="${esc(dv.categoryOther)}" oninput="onStructuredInput('domain','categoryOther',this.value)"></div>` : ''}
+          </div>`;
+        }
+        if(s.id==='invest') extra = renderInvestorsBlock();
+        if(s.id==='team') extra = renderMentorsBlock();
+        if(s.id==='track') extra = `<h3 style="font-size:.92rem;color:var(--primary);margin:10px 0 8px">برنامه سه‌ساله ورود و خروج (تعداد تیم)</h3>` + renderRoadmapTable();
+        if(s.id==='finance') extra = `
+          <h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">هزینه‌های سه‌ساله</h3>${renderYearTable('finance','costs', getYearTable('finance','costs'), COST_PRESETS)}
+          <h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">محل تأمین هزینه‌ها</h3>${renderYearTable('finance','funding', getYearTable('finance','funding'), FUNDING_PRESETS)}
+          <h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">پیش‌بینی درآمد سه‌ساله</h3>${renderYearTable('finance','revenue', getYearTable('finance','revenue'), REVENUE_PRESETS)}`;
         return `<div class="card">
-        <div class="ai-help-row"><h2 style="margin-bottom:0">${esc(s.title)}</h2><button class="ai-btn" onclick="toggleAi('${s.id}')">✨ کمک هوش مصنوعی</button></div>
+        <div class="ai-help-row"><h2 style="margin-bottom:0">${esc(s.title)}</h2>${s.noAI?'':`<button class="ai-btn" onclick="toggleAi('${s.id}')">✨ کمک هوش مصنوعی</button>`}</div>
         <p class="hint">${esc(s.hint)}</p>
         ${sf ? `<div class="field" style="display:flex;flex-wrap:wrap;gap:10px">${sf.map(f=>`
-          <div style="flex:1;min-width:150px"><label style="font-size:.78rem">${esc(f.label)}</label><input type="${f.type}" id="sf-${s.id}-${f.key}" value="${esc((aState.structured[s.id]||{})[f.key] ?? '')}" oninput="onStructuredInput('${s.id}','${f.key}',this)"></div>`).join('')}</div>` : ''}
-        <div class="field"><textarea id="sec-${s.id}" maxlength="8000" oninput="onSectionInput('${s.id}',this)">${esc(aState.sections[s.id]||'')}</textarea></div>
-        <div class="ai-panel" id="ai-${s.id}">
+          <div style="flex:1;min-width:150px"><label style="font-size:.78rem">${esc(f.label)}</label><input type="${f.type}" id="sf-${s.id}-${f.key}" value="${esc((aState.structured[s.id]||{})[f.key] ?? '')}" oninput="onStructuredInput('${s.id}','${f.key}',this.value)"></div>`).join('')}</div>` : ''}
+        <div class="field"><label style="font-size:.78rem">${s.noAI?'توضیحات کوتاه':'شرح کامل'}</label><textarea id="sec-${s.id}" maxlength="${s.noAI?1000:8000}" style="${s.noAI?'min-height:70px':''}" oninput="onSectionInput('${s.id}',this)">${esc(aState.sections[s.id]||'')}</textarea></div>
+        ${s.noAI ? '' : `<div class="ai-panel" id="ai-${s.id}">
           <div id="aiMsg-${s.id}">با دکمه زیر یک پیش‌نویس اولیه برای این بخش تولید کن (حداکثر ۳ بار برای هر بخش).</div>
           <div class="ai-suggest-actions"><button class="mini-btn primary" onclick="generateDraft('${s.id}')" id="aiBtn-${s.id}">تولید پیش‌نویس</button><button class="mini-btn" onclick="toggleAi('${s.id}')">بستن</button></div>
-        </div></div>`;
+        </div>`}
+        ${extra}
+        </div>`;
       }).join('');
   } else if(['docs1','docs2'].includes(stepKey)){
     body.innerHTML = renderDocGroupStep(stepKey);
@@ -745,9 +980,9 @@ function renderStepBody(){
 }
 
 function onSectionInput(id, el){ aState.sections[id]=el.value; renderXP(); }
-function onStructuredInput(sectionId, key, el){
+function onStructuredInput(sectionId, key, val){
   if(!aState.structured[sectionId]) aState.structured[sectionId] = {};
-  aState.structured[sectionId][key] = el.value;
+  aState.structured[sectionId][key] = val;
 }
 function toggleAi(id){ document.getElementById('ai-'+id).classList.toggle('open'); }
 
