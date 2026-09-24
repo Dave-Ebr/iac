@@ -7,6 +7,7 @@
 <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
 :root{
@@ -220,6 +221,7 @@ const TEMPLATE_DOCX_URL = ''; // لینک عمومی «کاربرگ اولیه.d
     <div><div class="topbar-name" id="tbName">—</div><div class="topbar-role" id="tbRole"></div></div>
   </div>
   <div class="topbar-actions">
+    <button class="icon-btn" onclick="replayTour()">❓ راهنما</button>
     <button class="icon-btn" onclick="toggleTheme()" id="themeBtn">🌙 حالت شب</button>
     <button class="icon-btn" onclick="doLogout()">🚪 خروج</button>
   </div>
@@ -245,8 +247,8 @@ const TEMPLATE_DOCX_URL = ''; // لینک عمومی «کاربرگ اولیه.d
     <h2 id="authTitle">ورود به سامانه</h2>
     <p class="hint">حساب شتابدهنده‌های متقاضی و کارشناسان مرکز</p>
     <div class="field" id="nameField" style="display:none"><label>نام و نام خانوادگی</label><input type="text" id="authName"></div>
-    <div class="field"><label>ایمیل</label><input type="email" id="authEmail"></div>
-    <div class="field"><label>رمز عبور</label><input type="password" id="authPass"></div>
+    <div class="field"><label>ایمیل</label><input type="email" id="authEmail" onkeydown="if(event.key==='Enter'){event.preventDefault();doAuth();}"></div>
+    <div class="field"><label>رمز عبور</label><input type="password" id="authPass" onkeydown="if(event.key==='Enter'){event.preventDefault();doAuth();}"></div>
     <div class="turnstile-wrap" id="turnstileWrap"></div>
     <button class="btn btn-primary" style="width:100%" onclick="doAuth()" id="authBtn">ورود</button>
   </div>
@@ -393,8 +395,65 @@ async function onAuthReady(){
   document.getElementById('tbRole').textContent = (profile.role==='specialist'||profile.role==='admin') ? 'کارشناس مرکز' : 'شتابدهنده متقاضی';
   document.getElementById('topBar').classList.add('show');
 
-  if(profile.role === 'specialist' || profile.role === 'admin'){ initSpecialistView(); }
-  else { initApplicantView(); }
+  if(profile.role === 'specialist' || profile.role === 'admin'){ await initSpecialistView(); }
+  else { await initApplicantView(); }
+
+  const tourKey = 'accelerator_tour_done_'+profile.role;
+  if(!localStorage.getItem(tourKey)){
+    setTimeout(()=>replayTour(), 700);
+  }
+}
+
+// ---------------------------- راهنمای ویژوال اولین ورود ----------------------------
+const TOUR_STEPS_APPLICANT = [
+  {sel:'#topBar', text:'بالای صفحه: اسم و نقش شما، دکمه خروج از حساب، و حالت شب/روز.'},
+  {sel:'.xp-wrap', text:'با تکمیل هر بخش طرح، امتیاز (XP) و سطح‌تون بالا می‌ره.'},
+  {sel:'#stepper', text:'نوار مراحل ثبت طرح. روی مراحل قبلی می‌تونید کلیک کنید و برگردید و ویرایش کنید.'},
+  {sel:'#nextBtn', text:'با این دکمه به مرحله بعد می‌رید. لازم نیست یک‌جا تمومش کنید — اطلاعاتتون تا چند روز ذخیره می‌مونه.'},
+];
+const TOUR_STEPS_SPECIALIST = [
+  {sel:'#topBar', text:'بالای صفحه: اسم و نقش شما، دکمه خروج از حساب، و حالت شب/روز.'},
+  {sel:'.stats-row', text:'خلاصه وضعیت کلی همه پرونده‌ها.'},
+  {sel:'.filter-row', text:'با این فیلترها می‌تونید پرونده‌ها رو بر اساس وضعیت جدا ببینید.'},
+  {sel:'#queueList', text:'روی هر پرونده کلیک کنید تا جزئیات، امتیازدهی و اقدامات رو ببینید.'},
+];
+let tourIndex = 0, tourSteps = [];
+function startTour(steps){
+  tourSteps = steps.filter(s=>document.querySelector(s.sel));
+  tourIndex = 0;
+  if(!tourSteps.length) return;
+  showTourStep();
+}
+function showTourStep(){
+  document.getElementById('tourOverlay')?.remove();
+  const step = tourSteps[tourIndex];
+  const el = document.querySelector(step.sel);
+  if(!el){ tourIndex++; if(tourIndex<tourSteps.length) showTourStep(); return; }
+  const r = el.getBoundingClientRect();
+  const pad = 6;
+  const tipTop = Math.min(r.bottom+14, window.innerHeight-170);
+  const tipLeft = Math.max(10, Math.min(r.left, window.innerWidth-300));
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="tourOverlay" style="position:fixed;inset:0;z-index:4000">
+      <div style="position:absolute;top:${r.top-pad}px;left:${r.left-pad}px;width:${r.width+pad*2}px;height:${r.height+pad*2}px;border:3px solid var(--accent);border-radius:10px;box-shadow:0 0 0 4000px rgba(0,0,0,.6);pointer-events:none"></div>
+      <div style="position:absolute;top:${tipTop}px;left:${tipLeft}px;max-width:280px;background:var(--card);color:var(--text);border-radius:12px;padding:14px;box-shadow:var(--shadow)">
+        <div style="font-size:.85rem;margin-bottom:10px;line-height:1.8">${esc(step.text)}</div>
+        <div style="display:flex;justify-content:space-between;gap:8px">
+          <button class="mini-btn" onclick="endTour()">رد شدن</button>
+          <button class="mini-btn primary" onclick="nextTourStep()">${tourIndex===tourSteps.length-1?'فهمیدم':'بعدی'}</button>
+        </div>
+      </div>
+    </div>`);
+}
+function nextTourStep(){ tourIndex++; if(tourIndex>=tourSteps.length){ endTour(); return; } showTourStep(); }
+function endTour(){
+  document.getElementById('tourOverlay')?.remove();
+  if(currentProfile) localStorage.setItem('accelerator_tour_done_'+currentProfile.role, '1');
+}
+function replayTour(){
+  if(!currentProfile) return;
+  const steps = (currentProfile.role==='specialist'||currentProfile.role==='admin') ? TOUR_STEPS_SPECIALIST : TOUR_STEPS_APPLICANT;
+  startTour(steps);
 }
 async function doLogout(){
   await supa.auth.signOut();
@@ -470,7 +529,7 @@ const PLAN_SECTIONS = [
   {id:'finance',title:'برنامه مالی سه‌ساله',hint:'پیش‌بینی هزینه، محل تأمین و درآمد برای سه سال آینده.'},
 ];
 const DOMAIN_OPTIONS = ['فناوری اطلاعات و نرم‌افزار','هوش مصنوعی و داده','زیست‌فناوری و دارو','الکترونیک و مخابرات','مواد پیشرفته و نانو','مکانیک و ماشین‌آلات','انرژی و محیط زیست','کشاورزی و صنایع غذایی','سایر'];
-const MENTOR_TYPE_LABELS = {technical:'فنی', business:'کسب‌وکار'};
+const MENTOR_TYPE_LABELS = {exec_team:'تیم اجرایی', technical:'منتور فنی', business:'منتور کسب‌وکار'};
 const EDUCATION_LABELS = {diploma:'دیپلم', associate:'کاردانی', bachelor:'کارشناسی', master:'کارشناسی ارشد', phd:'دکتری'};
 const INVESTOR_TYPE_LABELS = {real:'حقیقی', legal:'حقوقی'};
 const COST_PRESETS = ['اجاره فضا','حقوق پرسنل','منتورها و مربیان','مشاوران','برگزاری رویداد','سیدمانی','هزینه‌های جاری','اینترنت و زیرساخت'];
@@ -485,9 +544,6 @@ const STRUCTURED_FIELDS = {
     {key:'equityPercent', label:'درصد سهام دریافتی', type:'number'},
     {key:'preAccelMonths', label:'مدت پیش‌شتابدهی (ماه)', type:'number'},
     {key:'accelMonths', label:'مدت شتابدهی (ماه)', type:'number'},
-  ],
-  team: [
-    {key:'execTeamSize', label:'تعداد نفرات تیم اجرایی', type:'number'},
   ],
   track: [
     {key:'previousCycles', label:'تعداد چرخه‌های قبلی', type:'number'},
@@ -521,6 +577,7 @@ function renderYearTable(sectionId, tableKey, rows, presets){
       <td style="padding:6px;text-align:center" id="coltotal-${tid}-y3">${tableTotal(rows,'y3').toLocaleString('fa-IR')}</td>
       <td style="padding:6px;text-align:center" id="grandtotal-${tid}">${rows.reduce((s,r)=>s+rowTotal(r),0).toLocaleString('fa-IR')}</td><td></td></tr>
     </table></div>
+    ${rows.length===0 ? `<button class="mini-btn primary" style="margin-bottom:8px" onclick="addYearRow('${sectionId}','${tableKey}','جمع کل (حالت سریع — جزئیات بعداً)')">⚡ عجله دارم، فقط یه عدد کل بزنم</button><br>` : ''}
     <div class="ai-suggest-actions" style="margin-bottom:10px">
       ${presets.filter(p=>!rows.some(r=>r.label===p)).map(p=>`<button class="mini-btn" onclick="addYearRow('${sectionId}','${tableKey}','${p}')">+ ${esc(p)}</button>`).join('')}
       <button class="mini-btn" onclick="addYearRow('${sectionId}','${tableKey}','')">+ ردیف دلخواه</button>
@@ -595,8 +652,7 @@ const DOC_CATEGORIES = {
     {n:'شتابدهی', c:'مستندات مرحله شتابدهی تیم‌های قبلی.'},
     {n:'خروج موفق', c:'مستندات مربوط به خروج‌های موفق قبلی.'},
   ]},
-  '04': {name:'تیم اجرایی و بیمه', group:'docs3', phase:'later', items:[
-    {n:'رزومه تیم اجرایی', c:'رزومه هر عضو تیم اجرایی شامل سابقه کاری مرتبط. (رزومه منتورها و مشاوران را در بخش «تیم اجرایی و مربیان» طرح وارد کنید، نه اینجا.)'},
+  '04': {name:'بیمه ستاد اجرایی', group:'docs3', phase:'later', items:[
     {n:'لیست بیمه ستاد اجرایی شتابدهنده', c:'لیست بیمه تامین اجتماعی اعضای ستاد اجرایی که اشتغال رسمی آن‌ها را نشان دهد.'},
   ]},
   '05': {name:'فضای استقرار', group:'docs4', phase:'later', items:[
@@ -605,9 +661,6 @@ const DOC_CATEGORIES = {
   ]},
   '06': {name:'رویدادها و کارگاه‌ها', group:'docs4', phase:'later', items:[
     {n:'مستندات رویدادها و کارگاه‌ها', c:'گزارش یا تصاویر رویدادها/کارگاه‌های برگزارشده.'},
-  ]},
-  '07': {name:'هزینه و درآمد', group:'docs4', phase:'later', items:[
-    {n:'جداول هزینه و درآمد سه‌ساله', c:'جدول برآورد هزینه و درآمد سه سال آینده.'},
   ]},
   '08': {name:'گزارش اقدامات قبلی و دستاوردها', group:'docs4', phase:'later', items:[
     {n:'گزارش اقدامات و دستاوردها', c:'گزارش مکتوب از اقدامات و دستاوردهای پیشین.'},
@@ -629,13 +682,18 @@ const STEPS = [
 function catsForGroup(g){ return Object.entries(DOC_CATEGORIES).filter(([id,c])=>c.group===g).map(([id,c])=>({id,...c})); }
 function catsForPhase(p){ return Object.entries(DOC_CATEGORIES).filter(([id,c])=>c.phase===p).map(([id,c])=>({id,...c})); }
 
-let aState = { step:0, applicationId:null, basic:{name:'',founded:'',domain:'فناوری اطلاعات و نرم‌افزار'}, sections:{}, structured:{}, docs:{}, mentors:[], investors:[], lastLevel:0 };
+let aState = { step:0, applicationId:null, basic:{name:'',founded:'',domain:'فناوری اطلاعات و نرم‌افزار'}, sections:{}, structured:{}, docs:{}, mentors:[], investors:[], narrative:null, lastLevel:0 };
 Object.keys(DOC_CATEGORIES).forEach(id => aState.docs[id] = DOC_CATEGORIES[id].items.map(()=>null));
 const pendingFiles = {}; // نگه‌داری موقت File واقعی برای بررسی فوری AI بدون نیاز به دانلود مجدد
 
 // ---------------------------- منتورها (فنی/کسب‌وکار) ----------------------------
-function addMentorDraft(){ aState.mentors.push({localId:'new-'+Date.now(), isNew:true, mentor_type:'technical', full_name:'', national_id:'', years_active:'', education:'bachelor', achievements:'', resumeFile:null, photoFile:null}); renderStepBody(); }
-function mentorField(localId, key, val){ const m = aState.mentors.find(x=>x.localId===localId); if(m) m[key]=val; }
+function addMentorDraft(){ aState.mentors.push({localId:'new-'+Date.now(), isNew:true, mentor_type:'exec_team', full_name:'', national_id:'', years_active:'', education:'bachelor', resumeFile:null, photoFile:null}); renderStepBody(); }
+const mentorSaveTimers = {};
+function mentorField(localId, key, val){
+  const m = aState.mentors.find(x=>x.localId===localId); if(m) m[key]=val;
+  clearTimeout(mentorSaveTimers[localId]);
+  mentorSaveTimers[localId] = setTimeout(()=>saveMentor(localId, true), 1400);
+}
 async function uploadMentorFile(localId, kind, inputEl){
   const m = aState.mentors.find(x=>x.localId===localId); if(!m) return;
   const file = inputEl.files[0]; if(!file) return;
@@ -650,26 +708,27 @@ async function uploadMentorFile(localId, kind, inputEl){
   m[kind+'File'] = {name:file.name, size:file.size, path};
   renderStepBody(); toast('فایل بارگذاری شد');
 }
-async function saveMentor(localId){
+async function saveMentor(localId, silent){
   const m = aState.mentors.find(x=>x.localId===localId); if(!m) return;
-  if(!m.full_name || m.full_name.trim().length<2){ toast('نام منتور را کامل وارد کنید'); return; }
-  if(!m.resumeFile){ toast('رزومه الزامی است'); return; }
+  if(!m.full_name || m.full_name.trim().length<2){ if(!silent) toast('نام منتور را کامل وارد کنید'); return; }
+  if(!m.resumeFile){ if(!silent) toast('رزومه الزامی است'); return; }
   if(!aState.applicationId){ const ok = await saveBasicInfo(); if(!ok) return; }
   const payload = {
     application_id: aState.applicationId, mentor_type:m.mentor_type, full_name:m.full_name.trim(),
     national_id: m.national_id||null, years_active: m.years_active?Number(m.years_active):null,
-    education: m.education||null, achievements: m.achievements||null,
+    education: m.education||null,
     resume_path: m.resumeFile.path, photo_path: m.photoFile?m.photoFile.path:null,
   };
   if(m.isNew){
     const {data, error} = await supa.from('mentors').insert(payload).select().single();
-    if(error){ toast('خطا: '+error.message); return; }
+    if(error){ if(!silent) toast('خطا: '+error.message); return; }
     m.id = data.id; m.isNew = false;
   } else {
     const {error} = await supa.from('mentors').update(payload).eq('id', m.id);
-    if(error){ toast('خطا: '+error.message); return; }
+    if(error){ if(!silent) toast('خطا: '+error.message); return; }
   }
-  toast('منتور ذخیره شد'); renderStepBody();
+  if(silent){ const badge=document.getElementById('mbadge-'+localId); if(badge){ badge.textContent='ذخیره‌شده'; badge.className='doc-cat-badge complete'; } }
+  else { toast('منتور ذخیره شد'); renderStepBody(); }
 }
 async function removeMentor(localId){
   const m = aState.mentors.find(x=>x.localId===localId); if(!m) return;
@@ -682,7 +741,12 @@ async function removeMentor(localId){
 
 // ---------------------------- سرمایه‌گذاران (حقیقی/حقوقی) ----------------------------
 function addInvestorDraft(){ aState.investors.push({localId:'new-'+Date.now(), isNew:true, investor_type:'legal', name:'', amount:'', equity_percent:'', details:'', docFile:null}); renderStepBody(); }
-function investorField(localId, key, val){ const inv = aState.investors.find(x=>x.localId===localId); if(inv) inv[key]=val; }
+const investorSaveTimers = {};
+function investorField(localId, key, val){
+  const inv = aState.investors.find(x=>x.localId===localId); if(inv) inv[key]=val;
+  clearTimeout(investorSaveTimers[localId]);
+  investorSaveTimers[localId] = setTimeout(()=>saveInvestor(localId, true), 1400);
+}
 async function uploadInvestorFile(localId, inputEl){
   const inv = aState.investors.find(x=>x.localId===localId); if(!inv) return;
   const file = inputEl.files[0]; if(!file) return;
@@ -696,9 +760,9 @@ async function uploadInvestorFile(localId, inputEl){
   inv.docFile = {name:file.name, size:file.size, path};
   renderStepBody(); toast('فایل بارگذاری شد');
 }
-async function saveInvestor(localId){
+async function saveInvestor(localId, silent){
   const inv = aState.investors.find(x=>x.localId===localId); if(!inv) return;
-  if(!inv.name || inv.name.trim().length<2){ toast('نام سرمایه‌گذار را کامل وارد کنید'); return; }
+  if(!inv.name || inv.name.trim().length<2){ if(!silent) toast('نام سرمایه‌گذار را کامل وارد کنید'); return; }
   if(!aState.applicationId){ const ok = await saveBasicInfo(); if(!ok) return; }
   const payload = {
     application_id: aState.applicationId, investor_type:inv.investor_type, name:inv.name.trim(),
@@ -707,13 +771,14 @@ async function saveInvestor(localId){
   };
   if(inv.isNew){
     const {data, error} = await supa.from('investors').insert(payload).select().single();
-    if(error){ toast('خطا: '+error.message); return; }
+    if(error){ if(!silent) toast('خطا: '+error.message); return; }
     inv.id = data.id; inv.isNew = false;
   } else {
     const {error} = await supa.from('investors').update(payload).eq('id', inv.id);
-    if(error){ toast('خطا: '+error.message); return; }
+    if(error){ if(!silent) toast('خطا: '+error.message); return; }
   }
-  toast('سرمایه‌گذار ذخیره شد'); renderStepBody();
+  if(silent){ const badge=document.getElementById('ibadge-'+localId); if(badge){ badge.textContent='ذخیره‌شده'; badge.className='doc-cat-badge complete'; } }
+  else { toast('سرمایه‌گذار ذخیره شد'); renderStepBody(); }
 }
 async function removeInvestor(localId){
   const inv = aState.investors.find(x=>x.localId===localId); if(!inv) return;
@@ -723,11 +788,11 @@ async function removeInvestor(localId){
   renderStepBody();
 }
 function renderMentorsBlock(){
-  return `<div style="margin-top:10px"><h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">منتورها (فنی و کسب‌وکار)</h3>
+  return `<div style="margin-top:10px"><h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">افراد کلیدی (تیم اجرایی و منتورها)</h3>
     ${aState.mentors.map(m=>`<div class="doc-cat">
-      <div class="doc-cat-head"><span class="doc-cat-title">${esc(m.full_name||'منتور جدید')} ${m.id?`<span class="doc-cat-badge complete">ذخیره‌شده</span>`:`<span class="doc-cat-badge empty">ذخیره‌نشده</span>`}</span><button class="mini-btn" onclick="removeMentor('${m.localId}')">🗑 حذف</button></div>
+      <div class="doc-cat-head"><span class="doc-cat-title">${esc(m.full_name||'فرد جدید')} ${m.id?`<span class="doc-cat-badge complete" id="mbadge-${m.localId}">ذخیره‌شده</span>`:`<span class="doc-cat-badge empty" id="mbadge-${m.localId}">ذخیره‌نشده</span>`}</span><button class="mini-btn" onclick="removeMentor('${m.localId}')">🗑 حذف</button></div>
       <div class="field" style="display:flex;flex-wrap:wrap;gap:10px">
-        <div style="flex:1;min-width:130px"><label>نوع منتور</label><select onchange="mentorField('${m.localId}','mentor_type',this.value)"><option value="technical" ${m.mentor_type==='technical'?'selected':''}>فنی</option><option value="business" ${m.mentor_type==='business'?'selected':''}>کسب‌وکار</option></select></div>
+        <div style="flex:1;min-width:130px"><label>نوع</label><select onchange="mentorField('${m.localId}','mentor_type',this.value)">${Object.entries(MENTOR_TYPE_LABELS).map(([k,l])=>`<option value="${k}" ${m.mentor_type===k?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
         <div style="flex:2;min-width:160px"><label>نام و نام خانوادگی</label><input type="text" value="${esc(m.full_name)}" oninput="mentorField('${m.localId}','full_name',this.value)"></div>
       </div>
       <div class="field" style="display:flex;flex-wrap:wrap;gap:10px">
@@ -735,22 +800,21 @@ function renderMentorsBlock(){
         <div style="flex:1;min-width:130px"><label>سال‌های فعالیت</label><input type="number" value="${esc(m.years_active)}" oninput="mentorField('${m.localId}','years_active',this.value)"></div>
         <div style="flex:1;min-width:150px"><label>میزان تحصیلات</label><select onchange="mentorField('${m.localId}','education',this.value)">${Object.entries(EDUCATION_LABELS).map(([k,l])=>`<option value="${k}" ${m.education===k?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
       </div>
-      <div class="field"><label>توضیحات دستاوردها</label><textarea style="min-height:60px" oninput="mentorField('${m.localId}','achievements',this.value)">${esc(m.achievements)}</textarea></div>
       <div class="doc-item-top" style="margin-bottom:8px">
         <input type="file" id="mres-${m.localId}" style="display:none" onchange="uploadMentorFile('${m.localId}','resume',this)">
         ${m.resumeFile ? `<div class="uploaded-chip">📎 رزومه: ${esc(m.resumeFile.name)}</div>` : `<button class="upload-btn" onclick="document.getElementById('mres-${m.localId}').click()">بارگذاری رزومه (الزامی)</button>`}
         <input type="file" id="mpho-${m.localId}" style="display:none" accept=".jpg,.jpeg,.png" onchange="uploadMentorFile('${m.localId}','photo',this)">
         ${m.photoFile ? `<div class="uploaded-chip">🖼️ عکس: ${esc(m.photoFile.name)}</div>` : `<button class="upload-btn" onclick="document.getElementById('mpho-${m.localId}').click()">بارگذاری عکس (اختیاری)</button>`}
       </div>
-      <button class="btn btn-primary" onclick="saveMentor('${m.localId}')">💾 ذخیره منتور</button>
+      <button class="btn btn-primary" onclick="saveMentor('${m.localId}')">💾 ذخیره</button>
     </div>`).join('')}
-    <button class="mini-btn primary" onclick="addMentorDraft()">+ افزودن منتور</button>
+    <button class="mini-btn primary" onclick="addMentorDraft()">+ افزودن فرد</button>
   </div>`;
 }
 function renderInvestorsBlock(){
   return `<div style="margin-top:10px"><h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">سرمایه‌گذاران (حقیقی/حقوقی)</h3>
     ${aState.investors.map(inv=>`<div class="doc-cat">
-      <div class="doc-cat-head"><span class="doc-cat-title">${esc(inv.name||'سرمایه‌گذار جدید')} ${inv.id?`<span class="doc-cat-badge complete">ذخیره‌شده</span>`:`<span class="doc-cat-badge empty">ذخیره‌نشده</span>`}</span><button class="mini-btn" onclick="removeInvestor('${inv.localId}')">🗑 حذف</button></div>
+      <div class="doc-cat-head"><span class="doc-cat-title">${esc(inv.name||'سرمایه‌گذار جدید')} ${inv.id?`<span class="doc-cat-badge complete" id="ibadge-${inv.localId}">ذخیره‌شده</span>`:`<span class="doc-cat-badge empty" id="ibadge-${inv.localId}">ذخیره‌نشده</span>`}</span><button class="mini-btn" onclick="removeInvestor('${inv.localId}')">🗑 حذف</button></div>
       <div class="field" style="display:flex;flex-wrap:wrap;gap:10px">
         <div style="flex:1;min-width:120px"><label>نوع</label><select onchange="investorField('${inv.localId}','investor_type',this.value)"><option value="real" ${inv.investor_type==='real'?'selected':''}>حقیقی</option><option value="legal" ${inv.investor_type==='legal'?'selected':''}>حقوقی</option></select></div>
         <div style="flex:2;min-width:160px"><label>نام (شخص یا شرکت)</label><input type="text" value="${esc(inv.name)}" oninput="investorField('${inv.localId}','name',this.value)"></div>
@@ -773,8 +837,11 @@ function renderInvestorsBlock(){
 async function initApplicantView(){
   const root = document.getElementById('appRoot');
   root.innerHTML = `<header><div><h1>ثبت طرح شتابدهنده</h1><div class="sub">${esc(currentProfile.full_name || currentUser.email)}</div></div>
+    <button class="icon-btn" onclick="openMessages(aState.applicationId)">📥 پیام‌ها</button>
+    <button class="icon-btn" onclick="downloadPresentationOnly()">📄 فایل ارائه</button>
     <div class="xp-wrap"><div class="xp-top"><span id="xpLevelLabel">🔰 تازه‌کار</span><span id="xpNum">0 XP</span></div><div class="xp-track"><div class="xp-fill" id="xpFill" style="width:0%"></div></div>
     <div class="badge-row" id="badgeRow"></div></div></header>
+    <button id="floatChecklistBtn" onclick="showChecklistPopup()" style="position:fixed;bottom:26px;left:16px;z-index:900;background:var(--primary);color:#fff;border:none;border-radius:99px;padding:12px 18px;box-shadow:var(--shadow);font-family:inherit;font-size:.82rem;font-weight:700;cursor:pointer">📋 چی مونده؟</button>
     <div id="wizardWrap">
       <div class="stepper" id="stepper"></div>
       <div class="progress-bar"><div class="progress-fill" id="pfill"></div></div>
@@ -790,6 +857,7 @@ async function initApplicantView(){
   if(!app){ renderWizard(); return; }
   aState.applicationId = app.id;
   aState.basic = {name:app.name, founded:app.founded_year||'', domain:app.domain||'فناوری اطلاعات و نرم‌افزار'};
+  aState.narrative = app.ai_narrative || null;
 
   const {data:sections} = await supa.from('plan_sections').select('*').eq('application_id', app.id);
   (sections||[]).forEach(s => { aState.sections[s.section_key] = s.content; aState.structured[s.section_key] = s.structured_data || {}; });
@@ -801,7 +869,7 @@ async function initApplicantView(){
   aState.investors = (investors||[]).map(inv=>({localId:inv.id, id:inv.id, isNew:false, investor_type:inv.investor_type, name:inv.name, amount:inv.amount||'', equity_percent:inv.equity_percent||'', details:inv.details||'', docFile:inv.document_path?{name:inv.document_path.split('/').pop(),path:inv.document_path}:null}));
 
   if(app.status==='draft' || app.status==='needs_revision'){
-    if(app.status==='needs_revision'){ document.querySelector('#wizardWrap').insertAdjacentHTML('afterbegin', `<div class="stage-hint" style="border-color:var(--bad);background:rgba(185,28,28,.06);color:var(--bad)">کارشناس درخواست اصلاح داده: ${esc(app.specialist_note||'')}</div>`); }
+    if(app.status==='needs_revision'){ document.querySelector('#wizardWrap').insertAdjacentHTML('afterbegin', `<div class="stage-hint" style="border-color:var(--bad);background:rgba(185,28,28,.06);color:var(--bad);cursor:pointer" onclick="openMessages('${app.id}')">📥 کارشناس درخواست اصلاح داده — برای دیدن دلیل، اینجا را بزنید (پیام‌ها)</div>`); }
     renderWizard();
   } else if(app.status==='awaiting_receipt'){
     showFinalDocsAndReceipt(app);
@@ -818,7 +886,8 @@ function showStatusScreen(app){
   ls.classList.remove('hidden');
   ls.innerHTML = `<div class="card"><h2>وضعیت پرونده: ${esc(app.name)}</h2><p class="hint">${esc(labels[app.status]||app.status)}</p>
     ${timelineNote?`<p class="hint">${esc(timelineNote)}</p>`:''}
-    ${app.specialist_note?`<div class="stage-hint">یادداشت کارشناس: ${esc(app.specialist_note)}</div>`:''}
+    <p class="hint">برای پیام‌ها و بازخورد کارشناس، دکمه «📥 پیام‌ها» بالای صفحه را بزنید.</p>
+    ${app.status==='approved'?`<button class="btn btn-primary" onclick="downloadFullPackageApplicant()">📦 دانلود کامل پرونده (ZIP)</button>`:''}
     <p class="hint" style="margin-top:10px">پیشرفت شما در سامانه ذخیره است؛ در صورت عدم فعالیت طولانی، طبق سیاست مرکز پرونده‌های راکد بازنشانی می‌شوند.</p></div>`;
   if(app.status==='approved') burstConfetti();
 }
@@ -955,15 +1024,11 @@ function renderStepBody(){
           <h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">محل تأمین هزینه‌ها</h3>${renderYearTable('finance','funding', getYearTable('finance','funding'), FUNDING_PRESETS)}
           <h3 style="font-size:.92rem;color:var(--primary);margin-bottom:8px">پیش‌بینی درآمد سه‌ساله</h3>${renderYearTable('finance','revenue', getYearTable('finance','revenue'), REVENUE_PRESETS)}`;
         return `<div class="card">
-        <div class="ai-help-row"><h2 style="margin-bottom:0">${esc(s.title)}</h2>${s.noAI?'':`<button class="ai-btn" onclick="toggleAi('${s.id}')">✨ کمک هوش مصنوعی</button>`}</div>
+        <div class="ai-help-row"><h2 style="margin-bottom:0">${esc(s.title)}</h2>${s.noAI?'':`<button class="ai-btn" id="aiBtn-${s.id}" onclick="generateDraft('${s.id}')">🤖 بررسی و راهنمایی</button>`}</div>
         <p class="hint">${esc(s.hint)}</p>
         ${sf ? `<div class="field" style="display:flex;flex-wrap:wrap;gap:10px">${sf.map(f=>`
           <div style="flex:1;min-width:150px"><label style="font-size:.78rem">${esc(f.label)}</label><input type="${f.type}" id="sf-${s.id}-${f.key}" value="${esc((aState.structured[s.id]||{})[f.key] ?? '')}" oninput="onStructuredInput('${s.id}','${f.key}',this.value)"></div>`).join('')}</div>` : ''}
         <div class="field"><label style="font-size:.78rem">${s.noAI?'توضیحات کوتاه':'شرح کامل'}</label><textarea id="sec-${s.id}" maxlength="${s.noAI?1000:8000}" style="${s.noAI?'min-height:70px':''}" oninput="onSectionInput('${s.id}',this)">${esc(aState.sections[s.id]||'')}</textarea></div>
-        ${s.noAI ? '' : `<div class="ai-panel" id="ai-${s.id}">
-          <div id="aiMsg-${s.id}">با دکمه زیر یک پیش‌نویس اولیه برای این بخش تولید کن (حداکثر ۳ بار برای هر بخش).</div>
-          <div class="ai-suggest-actions"><button class="mini-btn primary" onclick="generateDraft('${s.id}')" id="aiBtn-${s.id}">تولید پیش‌نویس</button><button class="mini-btn" onclick="toggleAi('${s.id}')">بستن</button></div>
-        </div>`}
         ${extra}
         </div>`;
       }).join('');
@@ -972,6 +1037,8 @@ function renderStepBody(){
   } else if(stepKey==='review'){
     body.innerHTML = `<div class="card"><h2>بازبینی نهایی</h2>
       <p class="hint">فقط مدارک «نهاد موسس» و «سرمایه‌گذاری» برای ارسال اولیه لازم است؛ بقیه مدارک (مربیان/بیمه/فضا/هزینه و...) را بعد از تایید اولیه کارشناس، همراه با فیش واریزی از شما می‌خواهیم — نگران تکمیل نبودن آن‌ها نباشید.</p>
+      <div class="ai-help-row"><span style="font-size:.85rem;font-weight:600">فایل ارائه جامع شما</span><button class="ai-btn" onclick="generateNarrative()">🤖 تولید نسخه روایی یکپارچه</button></div>
+      <p class="hint">این دکمه یه نسخه روان و پیوسته از کل طرحتون می‌سازه که تو فایل ارائه جامع (دکمه «📄 فایل ارائه» بالای صفحه) قرار می‌گیره.</p>
       <div class="review-section"><h3>اطلاعات پایه</h3><p>${esc(aState.basic.name)} · تأسیس ${esc(aState.basic.founded||'—')} · ${esc(aState.basic.domain)}</p></div>
       ${PLAN_SECTIONS.map(s=>`<div class="review-section"><h3>${esc(s.title)}</h3><p>${(aState.sections[s.id]||'').trim()?esc(aState.sections[s.id]):'<span style="color:var(--bad)">تکمیل نشده</span>'}</p></div>`).join('')}
       <div class="review-section"><h3>مدارک (ارسال اولیه)</h3><p>${catsForPhase('submit').map(c=>{const v=aState.docs[c.id],ok=v.filter(Boolean).length; return `<span style="color:${ok===v.length?'var(--good)':(c.optional?'var(--muted)':'var(--bad)')}">${esc(c.name)}: ${ok}/${v.length}</span>`;}).join(' · ')}</p></div>
@@ -984,7 +1051,65 @@ function onStructuredInput(sectionId, key, val){
   if(!aState.structured[sectionId]) aState.structured[sectionId] = {};
   aState.structured[sectionId][key] = val;
 }
-function toggleAi(id){ document.getElementById('ai-'+id).classList.toggle('open'); }
+
+// دیالوگ‌باکس مشترک برای نمایش راهنمایی/بررسی هوش مصنوعی (به‌جای این‌که خودش چیزی رو جایگزین متن کاربر کنه)
+function showAiModal(title, bodyText, isError){
+  document.getElementById('aiModal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay" id="aiModal"><div class="modal-box" style="max-width:480px">
+    <h3 style="color:${isError?'var(--bad)':'var(--primary)'};margin-bottom:12px">🤖 ${esc(title)}</h3>
+    <div style="max-height:60vh;overflow-y:auto;font-size:.87rem;white-space:pre-wrap;line-height:1.9">${esc(bodyText)}</div>
+    <div class="action-row" style="margin-top:14px"><button class="btn btn-primary" style="flex:1" onclick="document.getElementById('aiModal').remove()">متوجه شدم</button></div>
+  </div></div>`);
+}
+
+// ---------------------------- صندوق پیام (مشترک بین متقاضی و کارشناس) ----------------------------
+async function openMessages(appId){
+  if(!appId){ toast('ابتدا اطلاعات پایه را ذخیره کنید'); return; }
+  const {data, error} = await supa.from('messages').select('*').eq('application_id', appId).order('created_at');
+  if(error){ toast('خطا در دریافت پیام‌ها: '+error.message); return; }
+  const msgs = data || [];
+  document.getElementById('msgModal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay" id="msgModal"><div class="modal-box" style="max-width:440px">
+    <h3 style="color:var(--primary);margin-bottom:12px">📥 پیام‌ها</h3>
+    <div style="max-height:320px;overflow-y:auto;margin-bottom:10px" id="msgList">
+      ${msgs.length ? msgs.map(m=>`<div style="margin-bottom:8px;padding:9px 12px;border-radius:10px;background:${m.sender_role==='specialist'?'var(--bg)':'rgba(30,58,95,.08)'}">
+        <div style="font-size:.7rem;color:var(--muted);margin-bottom:3px">${m.sender_role==='specialist'?'کارشناس مرکز':'شما'} · ${new Date(m.created_at).toLocaleString('fa-IR')}</div>
+        <div style="font-size:.85rem;white-space:pre-wrap">${esc(m.body)}</div>
+      </div>`).join('') : '<p class="hint">هنوز پیامی رد و بدل نشده.</p>'}
+    </div>
+    <textarea id="msgInput" placeholder="پیام خود را بنویسید..." style="min-height:60px"></textarea>
+    <div class="action-row" style="margin-top:10px">
+      <button class="btn btn-primary" style="flex:1" onclick="sendMessageFromModal('${appId}')">ارسال</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('msgModal').remove()">بستن</button>
+    </div>
+  </div></div>`);
+  const list = document.getElementById('msgList'); list.scrollTop = list.scrollHeight;
+}
+async function sendMessageFromModal(appId){
+  const ta = document.getElementById('msgInput');
+  const body = ta.value.trim();
+  if(!body) return;
+  const {data, error} = await supa.rpc('send_message', {p_app_id: appId, p_body: body});
+  if(error || (data && data.ok===false)){ toast('خطا در ارسال پیام'); return; }
+  ta.value='';
+  openMessages(appId);
+}
+
+// ---------------------------- ویجت شناور «چی مونده؟» ----------------------------
+function showChecklistPopup(){
+  const items = [];
+  items.push({label:'اطلاعات پایه', ok: !!aState.basic.name});
+  PLAN_SECTIONS.forEach(s=>items.push({label:s.title, ok: !!(aState.sections[s.id]||'').trim()}));
+  catsForPhase('submit').forEach(c=>{ const v=aState.docs[c.id]; items.push({label:'مدرک: '+c.name, ok: !!c.optional || v.every(x=>x)}); });
+  const doneCount = items.filter(i=>i.ok).length;
+  document.getElementById('checklistModal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay" id="checklistModal"><div class="modal-box" style="max-width:380px">
+    <h3 style="color:var(--primary);margin-bottom:4px">📋 چی مونده؟</h3>
+    <p class="hint" style="margin-bottom:12px">${doneCount} از ${items.length} مورد کامل شده (فقط موارد لازم برای ارسال اولیه)</p>
+    <div style="max-height:55vh;overflow-y:auto">${items.map(i=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.85rem"><span>${esc(i.label)}</span><span style="color:${i.ok?'var(--good)':'var(--bad)'};font-weight:700">${i.ok?'✓ کامل':'○ ناقص'}</span></div>`).join('')}</div>
+    <div class="action-row" style="margin-top:14px"><button class="btn btn-primary" style="flex:1" onclick="document.getElementById('checklistModal').remove()">بستن</button></div>
+  </div></div>`);
+}
 
 async function suggestBasicInfoFromDoc(catId, idx){
   const key = `${catId}-${idx}`;
@@ -1011,18 +1136,15 @@ async function applyBasicInfoSuggestion(parsed){
   toast('اطلاعات پایه به‌روزرسانی شد');
 }
 
+// دستیار حالا به‌جای نوشتن متن جایگزین، آنچه کاربر تا الان وارد کرده (متن + اعداد ساختاریافته) رو
+// از دید یک کارشناس ارزیاب می‌بینه و می‌گه چی کامله، چی ناقصه، و منطق درست پرکردنش چیه.
 async function generateDraft(id){
   const s = PLAN_SECTIONS.find(x=>x.id===id);
-  const btn = document.getElementById('aiBtn-'+id); btn.disabled=true; btn.textContent='در حال تولید...';
+  const btn = document.getElementById('aiBtn-'+id); btn.disabled=true; btn.textContent='در حال بررسی...';
   const result = await callAiAssist({action:'draft', itemKey:`section:${id}`, sectionTitle:s.title, hint:s.hint, structuredSummary: structuredSummaryText(id), currentText: document.getElementById('sec-'+id).value});
-  if(result.error){ toast(result.message); }
-  else {
-    const ta = document.getElementById('sec-'+id);
-    ta.value = (ta.value ? ta.value+'\n\n' : '') + result.draft;
-    onSectionInput(id, ta);
-    toggleAi(id); toast('پیش‌نویس اضافه شد؛ ویرایشش کنید');
-  }
-  btn.disabled=false; btn.textContent='تولید پیش‌نویس';
+  btn.disabled=false; btn.textContent='🤖 بررسی و راهنمایی';
+  if(result.error){ showAiModal('خطا', result.message, true); return; }
+  showAiModal(s.title, result.draft);
 }
 
 async function handleFileSelect(catId, idx, inputEl){
@@ -1073,11 +1195,12 @@ async function checkDocumentWithAI(catId, idx){
       categoryName: DOC_CATEGORIES[catId].name, itemName: item.n, checklist: item.c,
       textContent, imageBase64, mimeType: blob.type || ''
     });
-    if(result.error){ out.textContent = result.message; out.style.color='var(--bad)'; }
+    if(result.error){ out.textContent = result.message; out.style.color='var(--bad)'; showAiModal(item.n, result.message, true); }
     else{
       out.textContent = result.draft; out.style.color='var(--text)';
       f.aiReview = result.draft;
       await supa.rpc('save_document_ai_review', {p_app_id:aState.applicationId, p_category:catId, p_item_index:idx, p_review:result.draft});
+      showAiModal(item.n, result.draft);
     }
   } catch(e){ out.textContent = 'خطا در بررسی: '+e.message; out.style.color='var(--bad)'; }
   btn.disabled=false; btn.textContent='🔎 بررسی با AI';
@@ -1227,14 +1350,18 @@ function journeyIndex(status){ const map={submitted:0,in_review:1,needs_revision
 
 async function openDetail(id){
   sCurrent = sApps.find(a=>a.id===id);
-  const [{data:sections},{data:docs},{data:evals}] = await Promise.all([
+  const [{data:sections},{data:docs},{data:evals},{data:mentors},{data:investors}] = await Promise.all([
     supa.from('plan_sections').select('*').eq('application_id',id),
     supa.from('documents').select('*').eq('application_id',id),
     supa.from('evaluations').select('*').eq('application_id',id),
+    supa.from('mentors').select('*').eq('application_id',id),
+    supa.from('investors').select('*').eq('application_id',id),
   ]);
   sCurrent.sectionsMap = {}; sCurrent.structuredMap = {};
   (sections||[]).forEach(s=>{ sCurrent.sectionsMap[s.section_key]=s.content; sCurrent.structuredMap[s.section_key]=s.structured_data||{}; });
   sCurrent.docsList = docs||[];
+  sCurrent.mentorsList = mentors||[];
+  sCurrent.investorsList = investors||[];
   sCurrent.scoresMap = {}; (evals||[]).forEach(e=>sCurrent.scoresMap[e.category_id]=e.score);
   document.getElementById('queueView').classList.add('hidden');
   document.getElementById('detailView').classList.remove('hidden');
@@ -1252,6 +1379,54 @@ function structuredLineFor(sectionId){
   const parts = fields.filter(f=>vals[f.key]!==undefined && vals[f.key]!=='').map(f=>`${f.label}: ${vals[f.key]}`);
   return parts.length ? parts.join(' · ') : '';
 }
+function renderReadOnlyYearTable(rows){
+  if(!rows || !rows.length) return '<p class="hint">وارد نشده.</p>';
+  const rowTotal = r => (Number(r.y1)||0)+(Number(r.y2)||0)+(Number(r.y3)||0);
+  const colTotal = k => rows.reduce((s,r)=>s+(Number(r[k])||0),0);
+  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:10px">
+    <tr style="border-bottom:2px solid var(--border)"><th style="text-align:right;padding:6px">عنوان</th><th style="padding:6px">سال اول</th><th style="padding:6px">سال دوم</th><th style="padding:6px">سال سوم</th><th style="padding:6px">جمع</th></tr>
+    ${rows.map(r=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">${esc(r.label)}</td><td style="padding:6px;text-align:center">${esc(r.y1)||0}</td><td style="padding:6px;text-align:center">${esc(r.y2)||0}</td><td style="padding:6px;text-align:center">${esc(r.y3)||0}</td><td style="padding:6px;text-align:center;font-weight:700">${rowTotal(r).toLocaleString('fa-IR')}</td></tr>`).join('')}
+    <tr style="font-weight:800;background:var(--bg)"><td style="padding:6px">جمع کل</td>
+      <td style="padding:6px;text-align:center">${colTotal('y1').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center">${colTotal('y2').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center">${colTotal('y3').toLocaleString('fa-IR')}</td>
+      <td style="padding:6px;text-align:center">${rows.reduce((s,r)=>s+rowTotal(r),0).toLocaleString('fa-IR')}</td></tr>
+  </table></div>`;
+}
+function renderMentorsReadOnly(){
+  if(!sCurrent.mentorsList.length) return '<p class="hint">هنوز منتوری ثبت نشده.</p>';
+  return sCurrent.mentorsList.map(m=>`<div class="doc-item">
+    <div class="doc-item-top"><div class="doc-item-name">👤 ${esc(m.full_name)} <span style="color:var(--muted);font-size:.75rem">(${esc(MENTOR_TYPE_LABELS[m.mentor_type]||m.mentor_type)})</span></div>
+      ${m.resume_path?`<span class="upload-btn" onclick="previewDoc('${m.resume_path}')">رزومه</span>`:''}
+      ${m.photo_path?`<span class="upload-btn" onclick="previewDoc('${m.photo_path}')">عکس</span>`:''}
+    </div>
+    <div class="doc-checklist">کدملی: ${esc(m.national_id||'—')} · سابقه: ${esc(m.years_active||'—')} سال · تحصیلات: ${esc(EDUCATION_LABELS[m.education]||'—')}</div>
+  </div>`).join('');
+}
+function renderInvestorsReadOnly(){
+  if(!sCurrent.investorsList.length) return '<p class="hint">هنوز سرمایه‌گذاری ثبت نشده.</p>';
+  return sCurrent.investorsList.map(inv=>`<div class="doc-item">
+    <div class="doc-item-top"><div class="doc-item-name">💼 ${esc(inv.name)} <span style="color:var(--muted);font-size:.75rem">(${esc(INVESTOR_TYPE_LABELS[inv.investor_type]||inv.investor_type)})</span></div>
+      ${inv.document_path?`<span class="upload-btn" onclick="previewDoc('${inv.document_path}')">مدرک</span>`:''}
+    </div>
+    <div class="doc-checklist">مبلغ: ${esc(inv.amount||'—')} میلیون تومان · سهام: ${esc(inv.equity_percent||'—')}٪</div>
+    ${inv.details?`<p style="font-size:.82rem;margin-top:4px">${esc(inv.details)}</p>`:''}
+  </div>`).join('');
+}
+function extraSectionContent(sectionId){
+  const st = sCurrent.structuredMap[sectionId] || {};
+  if(sectionId==='domain'){
+    return st.category ? `<div class="doc-checklist" style="margin-bottom:6px">🏷️ حوزه انتخابی: ${esc(st.category)}${st.category==='سایر'&&st.categoryOther?` (${esc(st.categoryOther)})`:''}</div>` : '';
+  }
+  if(sectionId==='invest') return `<h3 style="font-size:.85rem;color:var(--primary);margin:10px 0 6px">سرمایه‌گذاران ثبت‌شده</h3>${renderInvestorsReadOnly()}`;
+  if(sectionId==='team') return `<h3 style="font-size:.85rem;color:var(--primary);margin:10px 0 6px">منتورها</h3>${renderMentorsReadOnly()}`;
+  if(sectionId==='track') return `<h3 style="font-size:.85rem;color:var(--primary);margin:10px 0 6px">برنامه سه‌ساله ورود و خروج</h3>${renderReadOnlyYearTable(st.roadmap)}`;
+  if(sectionId==='finance') return `
+    <h3 style="font-size:.85rem;color:var(--primary);margin:10px 0 6px">هزینه‌های سه‌ساله</h3>${renderReadOnlyYearTable(st.costs)}
+    <h3 style="font-size:.85rem;color:var(--primary);margin:10px 0 6px">محل تأمین هزینه‌ها</h3>${renderReadOnlyYearTable(st.funding)}
+    <h3 style="font-size:.85rem;color:var(--primary);margin:10px 0 6px">پیش‌بینی درآمد</h3>${renderReadOnlyYearTable(st.revenue)}`;
+  return '';
+}
 async function generateAiSummary(){
   const btn = document.getElementById('aiSummaryBtn'); btn.disabled=true; btn.textContent='در حال تولید...';
   const fullText = PLAN_SECTIONS.map(s=>`${s.title}: ${sCurrent.sectionsMap[s.id]||''} ${structuredLineFor(s.id)}`).join('\n');
@@ -1265,13 +1440,121 @@ async function generateAiSummary(){
   }
   btn.disabled=false; btn.textContent='🤖 تولید خلاصه اجرایی';
 }
+function yearTableHTML(title, rows){
+  if(!rows || !rows.length) return '';
+  const rowTotal = r => (Number(r.y1)||0)+(Number(r.y2)||0)+(Number(r.y3)||0);
+  const colTotal = k => rows.reduce((s,r)=>s+(Number(r[k])||0),0);
+  return `<h3>${esc(title)}</h3><table class="doctable"><tr><th>عنوان</th><th>سال اول</th><th>سال دوم</th><th>سال سوم</th><th>جمع</th></tr>
+    ${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${esc(r.y1)||0}</td><td>${esc(r.y2)||0}</td><td>${esc(r.y3)||0}</td><td><b>${rowTotal(r).toLocaleString('fa-IR')}</b></td></tr>`).join('')}
+    <tr class="totalrow"><td>جمع کل</td><td>${colTotal('y1').toLocaleString('fa-IR')}</td><td>${colTotal('y2').toLocaleString('fa-IR')}</td><td>${colTotal('y3').toLocaleString('fa-IR')}</td><td>${rows.reduce((s,r)=>s+rowTotal(r),0).toLocaleString('fa-IR')}</td></tr>
+  </table>`;
+}
+// فایل ارائه جامع: یه سند HTML مستقل و قابل چاپ (فونت/چیدمان درست فارسی، برخلاف PDF که شکل‌دهی حروف فارسی سمت مرورگر خیلی مطمئن‌تر از کتابخانه‌های PDF-ساز سمت کلاینته)
+function buildComprehensiveHTML({name, domain, founded, sectionsMap, structuredMap, mentorsList, investorsList, narrative}){
+  const dv = (structuredMap.domain)||{};
+  const sectionsHTML = PLAN_SECTIONS.map(s=>{
+    const st = structuredMap[s.id]||{};
+    let extra = '';
+    if(s.id==='finance') extra = yearTableHTML('هزینه‌های سه‌ساله', st.costs) + yearTableHTML('محل تأمین هزینه‌ها', st.funding) + yearTableHTML('پیش‌بینی درآمد', st.revenue);
+    if(s.id==='track' && st.roadmap) extra = yearTableHTML('برنامه سه‌ساله ورود و خروج', st.roadmap);
+    return `<section><h2>${esc(s.title)}</h2><p>${esc(sectionsMap[s.id]||'—')}</p>${extra}</section>`;
+  }).join('');
+  const mentorsHTML = mentorsList && mentorsList.length ? `<section><h2>افراد کلیدی (تیم اجرایی و منتورها)</h2><table class="doctable"><tr><th>نام</th><th>نوع</th></tr>
+    ${mentorsList.map(m=>`<tr><td>${esc(m.full_name)}</td><td>${esc(MENTOR_TYPE_LABELS[m.mentor_type]||m.mentor_type)}</td></tr>`).join('')}</table></section>` : '';
+  const investorsHTML = investorsList && investorsList.length ? `<section><h2>سرمایه‌گذاران</h2><table class="doctable"><tr><th>نام</th><th>نوع</th><th>مبلغ (میلیون تومان)</th><th>درصد سهام</th></tr>
+    ${investorsList.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(INVESTOR_TYPE_LABELS[i.investor_type]||i.investor_type)}</td><td>${esc(i.amount||'—')}</td><td>${esc(i.equity_percent||'—')}</td></tr>`).join('')}</table></section>` : '';
+  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+  <title>${esc(name)} — طرح شتابدهنده</title>
+  <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+  <style>
+    body{font-family:Vazirmatn,sans-serif;max-width:820px;margin:30px auto;padding:0 20px;line-height:2;color:#1b2430}
+    h1{color:#1e3a5f;font-size:1.6rem;border-bottom:3px solid #c9a227;padding-bottom:10px}
+    .meta{color:#64748b;margin-bottom:20px}
+    .narrative{background:#f6f7f9;border-right:4px solid #1e3a5f;padding:16px 18px;border-radius:8px;margin-bottom:28px;font-size:.95rem}
+    section{margin-bottom:26px;page-break-inside:avoid}
+    h2{color:#1e3a5f;font-size:1.1rem;border-bottom:1px solid #e3e6ec;padding-bottom:6px;margin-bottom:10px}
+    h3{font-size:.95rem;color:#1e3a5f;margin:14px 0 6px}
+    table.doctable{width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px}
+    table.doctable th,table.doctable td{border:1px solid #e3e6ec;padding:6px 8px;text-align:center}
+    table.doctable th{background:#f6f7f9}
+    .totalrow{font-weight:800;background:#f6f7f9}
+    @media print{ body{margin:0} }
+  </style></head><body>
+    <h1>${esc(name)}</h1>
+    <div class="meta">حوزه فعالیت: ${esc(dv.category||domain||'—')}${dv.categoryOther?' ('+esc(dv.categoryOther)+')':''} · سال تأسیس: ${esc(founded||'—')}</div>
+    ${narrative ? `<div class="narrative"><b>خلاصه روایی طرح:</b><br>${esc(narrative)}</div>` : ''}
+    ${sectionsHTML}
+    ${mentorsHTML}
+    ${investorsHTML}
+  </body></html>`;
+}
+async function buildZipBlob({name, domain, founded, docsList, mentorsList, investorsList, sectionsMap, structuredMap, narrative}){
+  const zip = new JSZip();
+  zip.file('03_طرح_شتابدهی/فایل-ارائه-جامع.html', buildComprehensiveHTML({name, domain, founded, sectionsMap, structuredMap, mentorsList, investorsList, narrative}));
+  for(const d of docsList){
+    if(!d.file_path) continue;
+    try{
+      const {data, error} = await supa.storage.from('documents').download(d.file_path);
+      if(!error && data){
+        const catName = (DOC_CATEGORIES[d.category_id]?.name || 'سایر').replace(/[\/\\]/g,'-');
+        zip.folder(`${d.category_id}_${catName}`).file(d.file_name || d.file_path.split('/').pop(), data);
+      }
+    } catch(e){}
+  }
+  for(const m of mentorsList){
+    const folder = zip.folder('افراد_کلیدی_تیم_و_منتورها');
+    const label = (m.full_name||'فرد').replace(/[\/\\]/g,'-') + '-' + (MENTOR_TYPE_LABELS[m.mentor_type]||m.mentor_type);
+    if(m.resume_path){ try{ const {data} = await supa.storage.from('documents').download(m.resume_path); if(data) folder.file(`${label}-رزومه.${(m.resume_path.split('.').pop())}`, data); }catch(e){} }
+    if(m.photo_path){ try{ const {data} = await supa.storage.from('documents').download(m.photo_path); if(data) folder.file(`${label}-عکس.${(m.photo_path.split('.').pop())}`, data); }catch(e){} }
+  }
+  for(const inv of investorsList){
+    if(!inv.document_path) continue;
+    try{ const {data} = await supa.storage.from('documents').download(inv.document_path); if(data) zip.folder('سرمایه‌گذاران').file(`${(inv.name||'سرمایه‌گذار').replace(/[\/\\]/g,'-')}.${(inv.document_path.split('.').pop())}`, data); }catch(e){}
+  }
+  return await zip.generateAsync({type:'blob'});
+}
+function triggerBlobDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
+async function downloadFullPackageSpecialist(){
+  toast('در حال آماده‌سازی فایل...');
+  const blob = await buildZipBlob({name:sCurrent.name, domain:sCurrent.domain, founded:sCurrent.founded_year, docsList:sCurrent.docsList, mentorsList:sCurrent.mentorsList, investorsList:sCurrent.investorsList, sectionsMap:sCurrent.sectionsMap, structuredMap:sCurrent.structuredMap, narrative:sCurrent.ai_narrative});
+  triggerBlobDownload(blob, `${sCurrent.name}-پرونده-کامل.zip`);
+}
+function applicantMentorsNormalized(){ return aState.mentors.map(m=>({full_name:m.full_name, mentor_type:m.mentor_type, resume_path:m.resumeFile?.path, photo_path:m.photoFile?.path})); }
+function applicantInvestorsNormalized(){ return aState.investors.map(inv=>({name:inv.name, investor_type:inv.investor_type, amount:inv.amount, equity_percent:inv.equity_percent, document_path:inv.docFile?.path})); }
+async function downloadFullPackageApplicant(){
+  toast('در حال آماده‌سازی فایل...');
+  const docsList = [];
+  Object.entries(aState.docs).forEach(([catId,arr])=>arr.forEach((f,idx)=>{ if(f) docsList.push({category_id:catId, file_path:f.path, file_name:f.name}); }));
+  const blob = await buildZipBlob({name:aState.basic.name, domain:aState.basic.domain, founded:aState.basic.founded, docsList, mentorsList:applicantMentorsNormalized(), investorsList:applicantInvestorsNormalized(), sectionsMap:aState.sections, structuredMap:aState.structured, narrative:aState.narrative});
+  triggerBlobDownload(blob, `${aState.basic.name}-پرونده-کامل.zip`);
+}
+// فقط فایل ارائه جامع (بدون کل مدارک) — از همون ابتدای مسیر هم در دسترسه، نیازی به تایید نهایی نیست
+function downloadPresentationOnly(){
+  const html = buildComprehensiveHTML({name:aState.basic.name, domain:aState.basic.domain, founded:aState.basic.founded, sectionsMap:aState.sections, structuredMap:aState.structured, mentorsList:applicantMentorsNormalized(), investorsList:applicantInvestorsNormalized(), narrative:aState.narrative});
+  triggerBlobDownload(new Blob([html],{type:'text/html'}), `${aState.basic.name||'طرح'}-فایل-ارائه.html`);
+}
+async function generateNarrative(){
+  const fullText = PLAN_SECTIONS.map(s=>`${s.title}: ${aState.sections[s.id]||''} ${structuredSummaryText(s.id)}`).join('\n');
+  showAiModal('در حال تولید نسخه روایی...', 'لطفاً چند لحظه صبر کنید.');
+  const result = await callAiAssist({action:'compile_narrative', itemKey:'narrative:'+(aState.applicationId||'draft'), fullText});
+  if(result.error){ showAiModal('خطا', result.message, true); return; }
+  aState.narrative = result.draft;
+  if(aState.applicationId) await supa.rpc('save_application_narrative', {p_app_id: aState.applicationId, p_narrative: result.draft});
+  showAiModal('نسخه روایی یکپارچه طرح', result.draft);
+}
+
 function renderDetail(){
   const a = sCurrent;
   const curIdx = journeyIndex(a.status);
   const dv = document.getElementById('detailView');
   dv.innerHTML = `<button class="back-btn" onclick="closeDetail()">← بازگشت به فهرست پرونده‌ها</button>
     <div class="card"><div class="q-top" style="margin-bottom:10px"><div><div class="q-name">${esc(a.name)}</div><div class="q-domain">${esc(a.domain||'')}</div></div><span class="status-pill status-${a.status}">${esc(STATUS_LABELS[a.status])}</span></div>
-    <div class="journey-map">${JOURNEY_STAGES.map((s,i)=>{let cls=i<curIdx?'done':(i===curIdx?'current':''); return `<div class="journey-stage ${cls}"><div class="journey-dot">${i<curIdx?'✓':i+1}</div><div class="journey-name">${esc(JOURNEY_LABELS[s])}</div></div>`;}).join('')}</div></div>
+    <div class="journey-map">${JOURNEY_STAGES.map((s,i)=>{let cls=i<curIdx?'done':(i===curIdx?'current':''); return `<div class="journey-stage ${cls}"><div class="journey-dot">${i<curIdx?'✓':i+1}</div><div class="journey-name">${esc(JOURNEY_LABELS[s])}</div></div>`;}).join('')}</div>
+    <div class="action-row"><button class="icon-btn" onclick="openMessages('${a.id}')">📥 پیام‌ها با متقاضی</button><button class="icon-btn" onclick="downloadFullPackageSpecialist()">📦 دانلود کامل پرونده (ZIP)</button></div></div>
     <div class="stage-hint" id="stageHint"></div>
     <div class="card"><div class="ai-help-row"><h2 style="margin-bottom:0">خلاصه اجرایی</h2><button class="ai-btn" id="aiSummaryBtn" onclick="generateAiSummary()">🤖 تولید خلاصه اجرایی</button></div>
       <p class="hint" style="margin-bottom:0">یک پاراگراف خلاصه از کل طرح، برای تصمیم‌گیری سریع‌تر.</p>
@@ -1282,14 +1565,14 @@ function renderDetail(){
       <div class="gauge-row"><div class="gauge-wrap"><svg viewBox="0 0 120 120"><circle class="gauge-bg" cx="60" cy="60" r="50"/><circle class="gauge-fill" id="gaugeFill" cx="60" cy="60" r="50" stroke-dasharray="314.159"/></svg><div class="gauge-center"><div class="gauge-num" id="gaugeNum">0</div><div class="gauge-cat" id="gaugeCat">—</div></div></div>
       <div style="flex:1;min-width:180px;color:var(--muted);font-size:.85rem">امتیاز وزن‌دار از ۹ شاخص محاسبه می‌شود.</div></div>
       <div id="scoreGrid"></div></div>
-    <div class="card"><h2>یادداشت کارشناس</h2><textarea id="specNote" maxlength="4000">${esc(a.specialist_note||'')}</textarea></div>
+    <div class="card"><h2>یادداشت داخلی کارشناس</h2><p class="hint" style="margin-bottom:8px">این یادداشت فقط برای کارشناسان دیده می‌شود؛ برای ارسال چیزی به متقاضی از «پیام‌ها با متقاضی» بالای صفحه استفاده کنید.</p><textarea id="specNote" maxlength="4000">${esc(a.specialist_note||'')}</textarea></div>
     <div class="card"><h2>اقدامات</h2><div class="action-row" id="actionRow"></div></div>`;
 
   const hints = {submitted:'این پرونده هنوز بررسی نشده.',in_review:'در حال بررسی هستید. پس از امتیازدهی، تایید اولیه یا درخواست اصلاح کنید.',needs_revision:'درخواست اصلاح ارسال شده؛ منتظر ارسال مجدد.',awaiting_receipt:'تایید اولیه صادر شده؛ منتظر فیش واریزی و مدارک تکمیلی.',receipt_submitted:'فیش بارگذاری شده؛ آن را بررسی و تایید کنید.',meeting_pending:'فیش تایید شد؛ جلسه/بازدید را هماهنگ کنید.',meeting_scheduled:'جلسه تنظیم شده؛ پس از برگزاری تصمیم نهایی را ثبت کنید.',approved:'این پرونده تایید نهایی شده است.',rejected:'این پرونده رد شده است.'};
   document.getElementById('stageHint').textContent = hints[a.status]||'';
   document.getElementById('sectionsAcc').innerHTML = PLAN_SECTIONS.map(s=>{
     const line = structuredLineFor(s.id);
-    return `<div class="acc" id="acc-${s.id}"><div class="acc-head" onclick="toggleAcc('${s.id}')"><span>${esc(s.title)}</span><span class="chev">▾</span></div><div class="acc-body">${line?`<div class="doc-checklist" style="margin-bottom:6px">📊 ${esc(line)}</div>`:''}<p>${esc(a.sectionsMap[s.id])||'—'}</p></div></div>`;
+    return `<div class="acc" id="acc-${s.id}"><div class="acc-head" onclick="toggleAcc('${s.id}')"><span>${esc(s.title)}</span><span class="chev">▾</span></div><div class="acc-body">${line?`<div class="doc-checklist" style="margin-bottom:6px">📊 ${esc(line)}</div>`:''}<p>${esc(a.sectionsMap[s.id])||'—'}</p>${extraSectionContent(s.id)}</div></div>`;
   }).join('');
   document.getElementById('docList').innerHTML = a.docsList.length ? a.docsList.map(d=>`<div class="doc-item"><div class="doc-item-top"><div class="doc-item-name">📄 ${esc(d.item_name)} <span style="color:var(--muted);font-size:.75rem">(${(d.file_size/1024).toFixed(0)} KB)</span></div><span class="upload-btn" onclick="previewDoc('${d.file_path}')">مشاهده</span></div>${d.ai_review?`<div class="ai-doc-out">🤖 ${esc(d.ai_review)}</div>`:''}</div>`).join('') : '<p class="hint">هنوز مدرکی بارگذاری نشده.</p>';
   document.getElementById('scoreGrid').innerHTML = SCORE_CATS.map(c=>{ const v=a.scoresMap[c.id]??0;
@@ -1339,9 +1622,12 @@ async function setStatus(s){
   sCurrent.status=s; sCurrent.specialist_note=note; toast('وضعیت به «'+STATUS_LABELS[s]+'» تغییر یافت'); renderDetail();
 }
 async function requestRevision(){
-  const note=document.getElementById('specNote').value.trim();
-  if(!note){ toast('یادداشت موارد اصلاحی را بنویسید'); return; }
+  const msg = prompt('دلیل درخواست اصلاح را بنویسید — این متن مستقیم برای متقاضی به‌صورت پیام ارسال می‌شود:');
+  if(!msg || !msg.trim()) return;
+  const {data:msgRes, error:msgErr} = await supa.rpc('send_message', {p_app_id: sCurrent.id, p_body: msg.trim()});
+  if(msgErr || (msgRes && msgRes.ok===false)){ toast('خطا در ارسال پیام: '+(msgRes?.error||msgErr?.message)); return; }
   await setStatus('needs_revision');
+  toast('پیام ارسال و درخواست اصلاح ثبت شد');
 }
 function openMeetingModal(){
   document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay" id="meetingModal"><div class="modal-box"><h3 style="color:var(--primary);margin-bottom:14px">هماهنگی جلسه / بازدید</h3>
